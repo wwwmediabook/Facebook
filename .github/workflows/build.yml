@@ -5,26 +5,11 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
       - name: Generate Android project
         run: |
           set -e
           mkdir -p proj && cd proj
-          mkdir -p .
-          cat > settings.gradle <<'FBEOF'
-          pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }
-          dependencyResolutionManagement { repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS); repositories { google(); mavenCentral() } }
-          rootProject.name = "FriendsBook"
-          include ':app'
-          FBEOF
-          mkdir -p .
-          cat > build.gradle <<'FBEOF'
-          plugins { id 'com.android.application' version '8.2.2' apply false }
-          FBEOF
-          mkdir -p .
-          cat > gradle.properties <<'FBEOF'
-          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
-          android.nonTransitiveRClass=true
-          FBEOF
           mkdir -p app
           cat > app/build.gradle <<'FBEOF'
           plugins { id 'com.android.application' }
@@ -41,6 +26,9 @@ jobs:
               buildTypes { release { minifyEnabled false } }
               compileOptions { sourceCompatibility JavaVersion.VERSION_1_8; targetCompatibility JavaVersion.VERSION_1_8 }
           }
+          dependencies {
+              implementation 'androidx.webkit:webkit:1.8.0'
+          }
           FBEOF
           mkdir -p app/src/main
           cat > app/src/main/AndroidManifest.xml <<'FBEOF'
@@ -56,6 +44,10 @@ jobs:
               <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"/>
               <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT"/>
               <uses-permission android:name="android.permission.VIBRATE"/>
+              <uses-permission android:name="android.permission.READ_MEDIA_IMAGES"/>
+              <uses-permission android:name="android.permission.READ_MEDIA_VIDEO"/>
+              <uses-permission android:name="android.permission.READ_MEDIA_AUDIO"/>
+              <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32"/>
               <uses-feature android:name="android.hardware.camera" android:required="false"/>
               <uses-feature android:name="android.hardware.microphone" android:required="false"/>
               <application android:label="@string/app_name" android:icon="@drawable/ic_launcher" android:theme="@style/AppTheme"
@@ -74,26 +66,6 @@ jobs:
                   </service>
               </application>
           </manifest>
-          FBEOF
-          mkdir -p app/src/main/res/values
-          cat > app/src/main/res/values/strings.xml <<'FBEOF'
-          <resources><string name="app_name">Friends Book</string></resources>
-          FBEOF
-          mkdir -p app/src/main/res/values
-          cat > app/src/main/res/values/styles.xml <<'FBEOF'
-          <resources>
-              <style name="AppTheme" parent="android:Theme.DeviceDefault.Light.NoActionBar">
-                  <item name="android:windowBackground">@android:color/white</item>
-                  <item name="android:statusBarColor">#6c4cf1</item>
-              </style>
-          </resources>
-          FBEOF
-          mkdir -p app/src/main/res/drawable
-          cat > app/src/main/res/drawable/ic_launcher.xml <<'FBEOF'
-          <vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
-              <path android:fillColor="#6c4cf1" android:pathData="M0,0h108v108h-108z"/>
-              <path android:fillColor="#FFFFFF" android:pathData="M36,28h40v12h-27v13h23v12h-23v25h-13z"/>
-          </vector>
           FBEOF
           mkdir -p app/src/main/assets
           cat > app/src/main/assets/offline.html <<'FBEOF'
@@ -120,6 +92,8 @@ jobs:
           import android.webkit.WebChromeClient;
           import android.webkit.WebResourceError;
           import android.webkit.WebResourceRequest;
+          import android.webkit.WebResourceResponse;
+          import androidx.webkit.WebViewAssetLoader;
           import android.webkit.WebSettings;
           import android.webkit.WebView;
           import android.webkit.WebViewClient;
@@ -129,11 +103,13 @@ jobs:
 
           public class MainActivity extends Activity {
               // আপনার ওয়েবসাইটের ঠিকানা বদলাতে হলে শুধু এই দুই লাইন বদলান (HTTPS হতে হবে)
-              static final String HOME = "https://friendsbook.site.je/";
-              static final String HOST = "friendsbook.site.je";
+              static final String HOME = "https://appassets.androidplatform.net/assets/www/index.html";
+              static final String HOST = "appassets.androidplatform.net";
 
               static boolean visible;
+              Intent pendingChooser;
               WebView web;
+              WebViewAssetLoader loader;
               FrameLayout root;
               ValueCallback<Uri[]> fileCb;
               PermissionRequest pendingReq;
@@ -160,11 +136,17 @@ jobs:
                       try { startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url))); } catch (Exception e) { }
                   });
 
+                  loader = new WebViewAssetLoader.Builder().addPathHandler("/assets/", new WebViewAssetLoader.AssetsPathHandler(this)).build();
                   web.setWebViewClient(new WebViewClient() {
+                      @Override
+                      public WebResourceResponse shouldInterceptRequest(WebView v, WebResourceRequest r) {
+                          return loader.shouldInterceptRequest(r.getUrl());
+                      }
                       @Override
                       public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest r) {
                           Uri u = r.getUrl();
-                          if (HOST.equals(u.getHost()) || "file".equals(u.getScheme())) return false;
+                          String sc = u.getScheme();
+                          if (HOST.equals(u.getHost()) || "file".equals(sc)) return false;
                           try { startActivity(new Intent(Intent.ACTION_VIEW, u)); } catch (Exception e) { }
                           return true;
                       }
@@ -192,7 +174,7 @@ jobs:
                               if (types.size() == 1) i.setType(types.get(0)); else i.setType("*/*");
                               if (types.size() > 1) i.putExtra(Intent.EXTRA_MIME_TYPES, types.toArray(new String[0]));
                               if (p.getMode() == FileChooserParams.MODE_OPEN_MULTIPLE) i.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
-                              startActivityForResult(Intent.createChooser(i, "Choose file"), 200);
+                              launchChooser(Intent.createChooser(i, "Choose file"));
                           }
                           catch (Exception e) { fileCb = null; return false; }
                           return true;
@@ -244,6 +226,25 @@ jobs:
                   if (h != null) web.evaluateJavascript("location.hash='';location.hash='" + h + "'", null);
               }
 
+              String[] mediaPerms() {
+                  if (Build.VERSION.SDK_INT >= 33) return new String[]{"android.permission.READ_MEDIA_IMAGES", "android.permission.READ_MEDIA_VIDEO", "android.permission.READ_MEDIA_AUDIO"};
+                  return new String[]{"android.permission.READ_EXTERNAL_STORAGE"};
+              }
+
+              void launchChooser(Intent c) {
+                  if (Build.VERSION.SDK_INT >= 23) {
+                      List<String> miss = new ArrayList<>();
+                      for (String p : mediaPerms()) if (checkSelfPermission(p) != PackageManager.PERMISSION_GRANTED) miss.add(p);
+                      if (!miss.isEmpty() && !getSharedPreferences("fb", 0).getBoolean("asked_media", false)) {
+                          getSharedPreferences("fb", 0).edit().putBoolean("asked_media", true).apply();
+                          pendingChooser = c;
+                          requestPermissions(miss.toArray(new String[0]), 102);
+                          return;
+                      }
+                  }
+                  startActivityForResult(c, 200);
+              }
+
               void handlePerm(PermissionRequest req) {
                   List<String> missing = new ArrayList<>();
                   if (Build.VERSION.SDK_INT >= 23) {
@@ -260,6 +261,13 @@ jobs:
 
               @Override
               public void onRequestPermissionsResult(int code, String[] perms, int[] res) {
+                  if (code == 102 && pendingChooser != null) {
+                      Intent c = pendingChooser;
+                      pendingChooser = null;
+                      try { startActivityForResult(c, 200); }
+                      catch (Exception e) { if (fileCb != null) { fileCb.onReceiveValue(null); fileCb = null; } }
+                      return;
+                  }
                   if (code == 100 && pendingReq != null) {
                       boolean ok = res.length > 0;
                       for (int x : res) if (x != PackageManager.PERMISSION_GRANTED) ok = false;
@@ -456,6 +464,51 @@ jobs:
               }
           }
           FBEOF
+          mkdir -p app/src/main/res/drawable
+          cat > app/src/main/res/drawable/ic_launcher.xml <<'FBEOF'
+          <vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
+              <path android:fillColor="#6c4cf1" android:pathData="M0,0h108v108h-108z"/>
+              <path android:fillColor="#FFFFFF" android:pathData="M36,28h40v12h-27v13h23v12h-23v25h-13z"/>
+          </vector>
+          FBEOF
+          mkdir -p app/src/main/res/values
+          cat > app/src/main/res/values/strings.xml <<'FBEOF'
+          <resources><string name="app_name">Friends Book</string></resources>
+          FBEOF
+          mkdir -p app/src/main/res/values
+          cat > app/src/main/res/values/styles.xml <<'FBEOF'
+          <resources>
+              <style name="AppTheme" parent="android:Theme.DeviceDefault.Light.NoActionBar">
+                  <item name="android:windowBackground">@android:color/white</item>
+                  <item name="android:statusBarColor">#6c4cf1</item>
+              </style>
+          </resources>
+          FBEOF
+          mkdir -p .
+          cat > build.gradle <<'FBEOF'
+          plugins { id 'com.android.application' version '8.2.2' apply false }
+          FBEOF
+          mkdir -p .
+          cat > gradle.properties <<'FBEOF'
+          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+          android.nonTransitiveRClass=true
+          android.useAndroidX=true
+          FBEOF
+          mkdir -p .
+          cat > settings.gradle <<'FBEOF'
+          pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }
+          dependencyResolutionManagement { repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS); repositories { google(); mavenCentral() } }
+          rootProject.name = "FriendsBook"
+          include ':app'
+          FBEOF
+      - name: Add web app files
+        run: |
+          ZIP=$(ls *.zip | head -n1)
+          echo "Using $ZIP"
+          mkdir -p proj/app/src/main/assets/www
+          unzip -q "$ZIP" -d proj/app/src/main/assets/www
+          curl -L --fail -o proj/app/src/main/assets/www/supabase.js https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.0/dist/umd/supabase.js
+          ls -la proj/app/src/main/assets/www
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -468,5 +521,5 @@ jobs:
         run: gradle assembleDebug --no-daemon
       - uses: actions/upload-artifact@v4
         with:
-          name: FriendsBook-APK
+          name: FriendsBook-App
           path: proj/app/build/outputs/apk/debug/*.apk
