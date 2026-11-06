@@ -1,3 +1,4 @@
+
 name: Build APK
 on:
   workflow_dispatch:
@@ -122,6 +123,7 @@ jobs:
                   if (Build.VERSION.SDK_INT >= 21) getWindow().setStatusBarColor(Color.parseColor("#6c4cf1"));
                   root = new FrameLayout(this);
                   web = new WebView(this);
+          web.setBackgroundColor(Color.parseColor("#6c4cf1"));
                   root.addView(web, new FrameLayout.LayoutParams(-1, -1));
                   setContentView(root);
 
@@ -479,7 +481,7 @@ jobs:
           cat > app/src/main/res/values/styles.xml <<'FBEOF'
           <resources>
               <style name="AppTheme" parent="android:Theme.DeviceDefault.Light.NoActionBar">
-                  <item name="android:windowBackground">@android:color/white</item>
+                  <item name="android:windowBackground">#6c4cf1</item>
                   <item name="android:statusBarColor">#6c4cf1</item>
               </style>
           </resources>
