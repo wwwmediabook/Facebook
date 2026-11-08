@@ -29,6 +29,7 @@ jobs:
           }
           dependencies {
               implementation 'androidx.webkit:webkit:1.8.0'
+                        implementation 'com.startapp:inapp-sdk:4.+'
           }
           FBEOF
           mkdir -p app/src/main
@@ -45,6 +46,7 @@ jobs:
               <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"/>
               <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT"/>
               <uses-permission android:name="android.permission.VIBRATE"/>
+              <uses-permission android:name="com.google.android.gms.permission.AD_ID"/>
               <uses-permission android:name="android.permission.READ_MEDIA_IMAGES"/>
               <uses-permission android:name="android.permission.READ_MEDIA_VIDEO"/>
               <uses-permission android:name="android.permission.READ_MEDIA_AUDIO"/>
@@ -52,7 +54,7 @@ jobs:
               <uses-feature android:name="android.hardware.camera" android:required="false"/>
               <uses-feature android:name="android.hardware.microphone" android:required="false"/>
               <application android:label="@string/app_name" android:icon="@drawable/ic_launcher" android:theme="@style/AppTheme"
-                  android:usesCleartextTraffic="false" android:allowBackup="true" android:hardwareAccelerated="true">
+                  android:usesCleartextTraffic="true" android:allowBackup="true" android:hardwareAccelerated="true">
                   <activity android:name=".MainActivity" android:exported="true" android:launchMode="singleTop"
                       android:showWhenLocked="true" android:turnScreenOn="true"
                       android:configChanges="orientation|screenSize|keyboardHidden|screenLayout|smallestScreenSize"
@@ -87,6 +89,14 @@ jobs:
           import android.os.Bundle;
           import android.view.View;
           import android.webkit.CookieManager;
+          import android.view.Gravity;
+          import android.widget.LinearLayout;
+          import com.startapp.sdk.ads.banner.Banner;
+          import com.startapp.sdk.adsbase.Ad;
+          import com.startapp.sdk.adsbase.StartAppAd;
+          import com.startapp.sdk.adsbase.StartAppSDK;
+          import com.startapp.sdk.adsbase.adlisteners.AdDisplayListener;
+          import com.startapp.sdk.adsbase.adlisteners.AdEventListener;
           import android.webkit.JavascriptInterface;
           import android.webkit.PermissionRequest;
           import android.webkit.ValueCallback;
@@ -106,6 +116,9 @@ jobs:
               // আপনার ওয়েবসাইটের ঠিকানা বদলাতে হলে শুধু এই দুই লাইন বদলান (HTTPS হতে হবে)
               static final String HOME = "https://appassets.androidplatform.net/assets/www/index.html";
               static final String HOST = "appassets.androidplatform.net";
+              // Start.io (StartApp) বিজ্ঞাপন: পরীক্ষার সময় TEST_ADS = true রাখুন, আসল আয়ের জন্য false করুন
+              static final String STARTIO_APP_ID = "210728384";
+              static final boolean TEST_ADS = true;
 
               static boolean visible;
               Intent pendingChooser;
@@ -124,7 +137,16 @@ jobs:
                   root = new FrameLayout(this);
                   web = new WebView(this);
           web.setBackgroundColor(Color.parseColor("#6c4cf1"));
-                  root.addView(web, new FrameLayout.LayoutParams(-1, -1));
+                  LinearLayout col = new LinearLayout(this);
+                  col.setOrientation(LinearLayout.VERTICAL);
+                  col.addView(web, new LinearLayout.LayoutParams(-1, 0, 1f));
+                  StartAppSDK.init(this, STARTIO_APP_ID, false);
+                  StartAppSDK.setTestAdsEnabled(TEST_ADS);
+                  Banner banner = new Banner(this);
+                  LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(-2, -2);
+                  bp.gravity = Gravity.CENTER_HORIZONTAL;
+                  col.addView(banner, bp);
+                  root.addView(col, new FrameLayout.LayoutParams(-1, -1));
                   setContentView(root);
 
                   WebSettings s = web.getSettings();
@@ -200,6 +222,12 @@ jobs:
 
                   web.addJavascriptInterface(new Object() {
                       @JavascriptInterface
+                      public void showVideoAd() {
+                          runOnUiThread(new Runnable() { public void run() { playVideoAd(); } });
+                      }
+                  }, "FBAds");
+                  web.addJavascriptInterface(new Object() {
+                      @JavascriptInterface
                       public void setSession(String j) {
                           getSharedPreferences("fb", 0).edit().putString("session", j == null ? "" : j).apply();
                           startOrStop(j != null && !j.isEmpty());
@@ -212,6 +240,26 @@ jobs:
                   if (saved != null) web.restoreState(saved); else web.loadUrl(HOME + (h == null ? "" : h));
               }
 
+              void playVideoAd() {
+                  final StartAppAd ad = new StartAppAd(this);
+                  ad.loadAd(StartAppAd.AdMode.VIDEO, new AdEventListener() {
+                      public void onReceiveAd(Ad a) {
+                          ad.showAd(new AdDisplayListener() {
+                              public void adHidden(Ad x) { adDone(); }
+                              public void adDisplayed(Ad x) { }
+                              public void adClicked(Ad x) { }
+                              public void adNotDisplayed(Ad x) { adDone(); }
+                          });
+                      }
+                      public void onFailedToReceiveAd(Ad a) { adDone(); }
+                  });
+              }
+              
+              void adDone() {
+                  runOnUiThread(new Runnable() { public void run() {
+                      web.evaluateJavascript("window.__adDone&&window.__adDone()", null);
+                  } });
+              }
               void startOrStop(boolean on) {
                   Intent s = new Intent(this, PollService.class);
                   try {
