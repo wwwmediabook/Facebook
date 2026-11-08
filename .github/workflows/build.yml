@@ -118,7 +118,7 @@ jobs:
               static final String HOST = "appassets.androidplatform.net";
               // Start.io (StartApp) বিজ্ঞাপন: পরীক্ষার সময় TEST_ADS = true রাখুন, আসল আয়ের জন্য false করুন
               static final String STARTIO_APP_ID = "210728384";
-              static final boolean TEST_ADS = true;
+              static final boolean TEST_ADS = false;
 
               static boolean visible;
               Intent pendingChooser;
@@ -282,6 +282,7 @@ jobs:
               }
 
               void launchChooser(Intent c) {
+                  if (pendingChooser != null) { pendingChooser = c; return; }
                   if (Build.VERSION.SDK_INT >= 23) {
                       List<String> miss = new ArrayList<>();
                       for (String p : mediaPerms()) if (checkSelfPermission(p) != PackageManager.PERMISSION_GRANTED) miss.add(p);
@@ -329,7 +330,9 @@ jobs:
               @Override
               protected void onActivityResult(int req, int res, Intent data) {
                   if (req == 200 && fileCb != null) {
-                      fileCb.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(res, data));
+                      Uri[] got = WebChromeClient.FileChooserParams.parseResult(res, data);
+                  android.widget.Toast.makeText(this, got == null ? "ফাইল বাছাই হয়নি" : (got.length + " টি ফাইল বাছাই হয়েছে"), android.widget.Toast.LENGTH_SHORT).show();
+                  fileCb.onReceiveValue(got);
                       fileCb = null;
                   } else super.onActivityResult(req, res, data);
               }
