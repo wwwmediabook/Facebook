@@ -591,9 +591,24 @@ jobs:
         with:
           distribution: temurin
           java-version: 17
-      - uses: gradle/actions/setup-gradle@v3
-        with:
-          gradle-version: 8.2
+      - name: Install Gradle 8.2 (retry and mirrors)
+        run: |
+          for U in https://services.gradle.org/distributions/gradle-8.2-bin.zip https://downloads.gradle.org/distributions/gradle-8.2-bin.zip https://mirrors.cloud.tencent.com/gradle/gradle-8.2-bin.zip; do
+            for N in 1 2 3; do
+              rm -f /tmp/gradle.zip
+              if curl -fL --connect-timeout 30 --max-time 300 -o /tmp/gradle.zip "$U" && unzip -tq /tmp/gradle.zip > /dev/null 2>&1; then
+                echo "Downloaded from $U"; break 2
+              fi
+              echo "Attempt $N failed for $U"; rm -f /tmp/gradle.zip; sleep 10
+            done
+          done
+          if [ -f /tmp/gradle.zip ]; then
+            sudo unzip -q /tmp/gradle.zip -d /opt
+            echo "/opt/gradle-8.2/bin" >> "$GITHUB_PATH"
+          else
+            echo "Download failed, using the Gradle already installed on the runner"
+          fi
+          gradle --version | head -n 5
       - name: Build debug APK
         working-directory: proj
         run: gradle assembleDebug --no-daemon
