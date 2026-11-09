@@ -29,7 +29,7 @@ jobs:
           }
           dependencies {
               implementation 'androidx.webkit:webkit:1.8.0'
-                        implementation 'com.startapp:inapp-sdk:4.+'
+                        implementation 'com.unity3d.ads:unity-ads:4.+'
           }
           FBEOF
           mkdir -p app/src/main
@@ -90,13 +90,14 @@ jobs:
           import android.view.View;
           import android.webkit.CookieManager;
           import android.view.Gravity;
+          import com.unity3d.ads.IUnityAdsInitializationListener;
+          import com.unity3d.ads.IUnityAdsLoadListener;
+          import com.unity3d.ads.IUnityAdsShowListener;
+          import com.unity3d.ads.UnityAds;
+          import com.unity3d.ads.UnityAdsShowOptions;
+          import com.unity3d.services.banners.BannerView;
+          import com.unity3d.services.banners.UnityBannerSize;
           import android.widget.LinearLayout;
-          import com.startapp.sdk.ads.banner.Banner;
-          import com.startapp.sdk.adsbase.Ad;
-          import com.startapp.sdk.adsbase.StartAppAd;
-          import com.startapp.sdk.adsbase.StartAppSDK;
-          import com.startapp.sdk.adsbase.adlisteners.AdDisplayListener;
-          import com.startapp.sdk.adsbase.adlisteners.AdEventListener;
           import android.webkit.JavascriptInterface;
           import android.webkit.PermissionRequest;
           import android.webkit.ValueCallback;
@@ -117,7 +118,11 @@ jobs:
               static final String HOME = "https://appassets.androidplatform.net/assets/www/index.html";
               static final String HOST = "appassets.androidplatform.net";
               // Start.io (StartApp) বিজ্ঞাপন: পরীক্ষার সময় TEST_ADS = true রাখুন, আসল আয়ের জন্য false করুন
-              static final String STARTIO_APP_ID = "210687543";
+              static final String UNITY_GAME_ID = "800430462";
+              static final String UNITY_INTERSTITIAL = "BP_Interstitial_Android";
+              static final String UNITY_BANNER = "BP_Banner_Android";
+              // দুটি Full-screen বিজ্ঞাপনের মধ্যে কমপক্ষে এত মিলিসেকেন্ড ফাঁক (৩ মিনিট), যাতে বিরক্ত না হয়
+              static final long AD_GAP_MS = 180000;
               static final boolean TEST_ADS = false;
               // বিজ্ঞাপন না এলে কারণ Toast-এ দেখায়; সমস্যা মিটলে false করুন
               static final boolean AD_DEBUG = true;
@@ -125,6 +130,7 @@ jobs:
               static boolean visible;
               Intent pendingChooser;
               long chooserAt;
+              LinearLayout adCol;
               WebView web;
               WebViewAssetLoader loader;
               FrameLayout root;
@@ -141,14 +147,13 @@ jobs:
                   web = new WebView(this);
           web.setBackgroundColor(Color.parseColor("#6c4cf1"));
                   LinearLayout col = new LinearLayout(this);
+                  adCol = col;
                   col.setOrientation(LinearLayout.VERTICAL);
                   col.addView(web, new LinearLayout.LayoutParams(-1, 0, 1f));
-                  StartAppSDK.init(this, STARTIO_APP_ID, false);
-                  StartAppSDK.setTestAdsEnabled(TEST_ADS);
-                  Banner banner = new Banner(this);
-                  LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(-2, -2);
-                  bp.gravity = Gravity.CENTER_HORIZONTAL;
-                  col.addView(banner, bp);
+                  UnityAds.initialize(getApplicationContext(), UNITY_GAME_ID, TEST_ADS, new IUnityAdsInitializationListener() {
+                      public void onInitializationComplete() { runOnUiThread(new Runnable() { public void run() { showBanner(); } }); }
+                      public void onInitializationFailed(UnityAds.UnityAdsInitializationError err, String msg) { toastAd("Unity init: " + msg); }
+                  });
                   root.addView(col, new FrameLayout.LayoutParams(-1, -1));
                   setContentView(root);
 
@@ -252,31 +257,41 @@ jobs:
                   if (saved != null) web.restoreState(saved); else web.loadUrl(HOME + (h == null ? "" : h));
               }
 
-              void playVideoAd() {
-                  loadAndShow(StartAppAd.AdMode.VIDEO, true);
+              void showBanner() {
+                  try {
+                      BannerView b = new BannerView(this, UNITY_BANNER, new UnityBannerSize(320, 50));
+                      b.load();
+                      LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(-2, -2);
+                      bp.gravity = Gravity.CENTER_HORIZONTAL;
+                      adCol.addView(b, bp);
+                  } catch (Exception e) { toastAd("Banner: " + e); }
               }
               
-              void loadAndShow(final StartAppAd.AdMode mode, final boolean retry) {
-                  final StartAppAd ad = new StartAppAd(this);
-                  ad.loadAd(mode, new AdEventListener() {
-                      public void onReceiveAd(Ad a) {
-                          ad.showAd(new AdDisplayListener() {
-                              public void adHidden(Ad x) { adDone(); }
-                              public void adDisplayed(Ad x) { }
-                              public void adClicked(Ad x) { }
-                              public void adNotDisplayed(Ad x) { adDone(); }
-                          });
+              long lastAd = 0;
+              boolean adBusy = false;
+              
+              void playVideoAd() {
+                  long now = System.currentTimeMillis();
+                  if (adBusy || (lastAd != 0 && now - lastAd < AD_GAP_MS) || !UnityAds.isInitialized()) { adDone(); return; }
+                  adBusy = true;
+                  UnityAds.load(UNITY_INTERSTITIAL, new IUnityAdsLoadListener() {
+                      public void onUnityAdsAdLoaded(final String pid) {
+                          runOnUiThread(new Runnable() { public void run() {
+                              UnityAds.show(MainActivity.this, pid, new UnityAdsShowOptions(), new IUnityAdsShowListener() {
+                                  public void onUnityAdsShowFailure(String p1, UnityAds.UnityAdsShowError e1, String m1) { adBusy = false; toastAd("Unity show: " + m1); adDone(); }
+                                  public void onUnityAdsShowStart(String p2) { }
+                                  public void onUnityAdsShowClick(String p3) { }
+                                  public void onUnityAdsShowComplete(String p4, UnityAds.UnityAdsShowCompletionState s4) { adBusy = false; lastAd = System.currentTimeMillis(); adDone(); }
+                              });
+                          } });
                       }
-                      public void onFailedToReceiveAd(Ad a) {
-                          toastAd(a);
-                          if (retry) loadAndShow(StartAppAd.AdMode.AUTOMATIC, false); else adDone();
-                      }
+                      public void onUnityAdsFailedToLoad(String p5, UnityAds.UnityAdsLoadError e5, String m5) { adBusy = false; toastAd("Unity load: " + m5); adDone(); }
                   });
               }
               
-              void toastAd(Ad a) {
+              void toastAd(String t) {
                   if (!AD_DEBUG) return;
-                  final String m = "Ad: " + a.getErrorMessage();
+                  final String m = "Ad: " + t;
                   runOnUiThread(new Runnable() { public void run() { android.widget.Toast.makeText(MainActivity.this, m, android.widget.Toast.LENGTH_LONG).show(); } });
               }
               
