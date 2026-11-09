@@ -119,6 +119,8 @@ jobs:
               // Start.io (StartApp) বিজ্ঞাপন: পরীক্ষার সময় TEST_ADS = true রাখুন, আসল আয়ের জন্য false করুন
               static final String STARTIO_APP_ID = "210687543";
               static final boolean TEST_ADS = false;
+              // বিজ্ঞাপন না এলে কারণ Toast-এ দেখায়; সমস্যা মিটলে false করুন
+              static final boolean AD_DEBUG = true;
 
               static boolean visible;
               Intent pendingChooser;
@@ -251,8 +253,12 @@ jobs:
               }
 
               void playVideoAd() {
+                  loadAndShow(StartAppAd.AdMode.VIDEO, true);
+              }
+              
+              void loadAndShow(final StartAppAd.AdMode mode, final boolean retry) {
                   final StartAppAd ad = new StartAppAd(this);
-                  ad.loadAd(StartAppAd.AdMode.VIDEO, new AdEventListener() {
+                  ad.loadAd(mode, new AdEventListener() {
                       public void onReceiveAd(Ad a) {
                           ad.showAd(new AdDisplayListener() {
                               public void adHidden(Ad x) { adDone(); }
@@ -261,8 +267,17 @@ jobs:
                               public void adNotDisplayed(Ad x) { adDone(); }
                           });
                       }
-                      public void onFailedToReceiveAd(Ad a) { adDone(); }
+                      public void onFailedToReceiveAd(Ad a) {
+                          toastAd(a);
+                          if (retry) loadAndShow(StartAppAd.AdMode.AUTOMATIC, false); else adDone();
+                      }
                   });
+              }
+              
+              void toastAd(Ad a) {
+                  if (!AD_DEBUG) return;
+                  final String m = "Ad: " + a.getErrorMessage();
+                  runOnUiThread(new Runnable() { public void run() { android.widget.Toast.makeText(MainActivity.this, m, android.widget.Toast.LENGTH_LONG).show(); } });
               }
               
               void adDone() {
@@ -329,7 +344,16 @@ jobs:
               @Override
               protected void onActivityResult(int req, int res, Intent data) {
                   if (req == 200 && fileCb != null) {
-                      Uri[] got = WebChromeClient.FileChooserParams.parseResult(res, data);
+                      Uri[] got = null;
+                      if (res == RESULT_OK && data != null) {
+                          android.content.ClipData cd = data.getClipData();
+                          if (cd != null && cd.getItemCount() > 0) {
+                              got = new Uri[cd.getItemCount()];
+                              for (int q = 0; q < got.length; q++) got[q] = cd.getItemAt(q).getUri();
+                          } else if (data.getData() != null) {
+                              got = new Uri[]{data.getData()};
+                          }
+                      }
                   android.widget.Toast.makeText(this, got == null ? "ফাইল বাছাই হয়নি" : (got.length + " টি ফাইল বাছাই হয়েছে"), android.widget.Toast.LENGTH_SHORT).show();
                   fileCb.onReceiveValue(got);
                       fileCb = null;
