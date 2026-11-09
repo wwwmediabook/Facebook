@@ -117,11 +117,12 @@ jobs:
               static final String HOME = "https://appassets.androidplatform.net/assets/www/index.html";
               static final String HOST = "appassets.androidplatform.net";
               // Start.io (StartApp) বিজ্ঞাপন: পরীক্ষার সময় TEST_ADS = true রাখুন, আসল আয়ের জন্য false করুন
-              static final String STARTIO_APP_ID = "210728384";
+              static final String STARTIO_APP_ID = "210687543";
               static final boolean TEST_ADS = false;
 
               static boolean visible;
               Intent pendingChooser;
+              long chooserAt;
               WebView web;
               WebViewAssetLoader loader;
               FrameLayout root;
@@ -153,7 +154,9 @@ jobs:
                   s.setJavaScriptEnabled(true);
                   s.setDomStorageEnabled(true);
                   s.setMediaPlaybackRequiresUserGesture(false);
-                  s.setUserAgentString(s.getUserAgentString() + " FriendsBookApp/1.0");
+                  int vc = 1;
+                  try { vc = getPackageManager().getPackageInfo(getPackageName(), 0).versionCode; } catch (Exception e) { }
+                  s.setUserAgentString(s.getUserAgentString() + " FBApp/" + getPackageName() + "/" + vc);
                   CookieManager.getInstance().setAcceptCookie(true);
 
                   web.setDownloadListener((url, ua, cd, mime, len) -> {
@@ -187,6 +190,8 @@ jobs:
                       }
                       @Override
                       public boolean onShowFileChooser(WebView w, ValueCallback<Uri[]> cb, FileChooserParams p) {
+                          if (System.currentTimeMillis() - chooserAt < 1500) { cb.onReceiveValue(null); return true; }
+                          chooserAt = System.currentTimeMillis();
                           if (fileCb != null) fileCb.onReceiveValue(null);
                           fileCb = cb;
                           try {
@@ -233,8 +238,13 @@ jobs:
                           startOrStop(j != null && !j.isEmpty());
                       }
                   }, "FBAndroid");
-                  if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission("android.permission.POST_NOTIFICATIONS") != PackageManager.PERMISSION_GRANTED)
-                      requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"}, 101);
+                  if (Build.VERSION.SDK_INT >= 23 && !getSharedPreferences("fb", 0).getBoolean("asked_startup", false)) {
+                      getSharedPreferences("fb", 0).edit().putBoolean("asked_startup", true).apply();
+                      List<String> need = new ArrayList<>();
+                      if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission("android.permission.POST_NOTIFICATIONS") != PackageManager.PERMISSION_GRANTED) need.add("android.permission.POST_NOTIFICATIONS");
+                      for (String p : mediaPerms()) if (checkSelfPermission(p) != PackageManager.PERMISSION_GRANTED) need.add(p);
+                      if (!need.isEmpty()) requestPermissions(need.toArray(new String[0]), 101);
+                  }
                   if (!getSharedPreferences("fb", 0).getString("session", "").isEmpty()) startOrStop(true);
                   String h = getIntent().getStringExtra("hash");
                   if (saved != null) web.restoreState(saved); else web.loadUrl(HOME + (h == null ? "" : h));
@@ -282,18 +292,7 @@ jobs:
               }
 
               void launchChooser(Intent c) {
-                  if (pendingChooser != null) { pendingChooser = c; return; }
-                  if (Build.VERSION.SDK_INT >= 23) {
-                      List<String> miss = new ArrayList<>();
-                      for (String p : mediaPerms()) if (checkSelfPermission(p) != PackageManager.PERMISSION_GRANTED) miss.add(p);
-                      if (!miss.isEmpty() && !getSharedPreferences("fb", 0).getBoolean("asked_media", false)) {
-                          getSharedPreferences("fb", 0).edit().putBoolean("asked_media", true).apply();
-                          pendingChooser = c;
-                          requestPermissions(miss.toArray(new String[0]), 102);
-                          return;
-                      }
-                  }
-                  startActivityForResult(c, 200);
+              startActivityForResult(c, 200);
               }
 
               void handlePerm(PermissionRequest req) {
@@ -461,7 +460,7 @@ jobs:
 
               void checkNotifs(JSONObject c) throws Exception {
                   boolean first = !sp().contains("seen");
-                  JSONArray a = get(c, "notifications?user_id=eq." + c.getString("uid") + "&read=eq.false&order=created_at.desc&limit=10&select=id,type,profiles:actor_id(username,full_name)");
+                  JSONArray a = get(c, "notifications?user_id=eq." + c.getString("uid") + "&read=eq.false&order=created_at.desc&limit=10&select=id,type,body,profiles:actor_id(username,full_name)");
                   for (int i = a.length() - 1; i >= 0; i--) {
                       JSONObject o = a.getJSONObject(i);
                       String id = o.getString("id");
@@ -473,6 +472,8 @@ jobs:
                       else if (t.equals("comment")) msg = nm + " আপনার Post-এ Comment করেছেন";
                       else if (t.equals("follow")) msg = nm + " আপনাকে Follow করেছেন";
                       else if (t.equals("message")) msg = nm + " আপনাকে নতুন Message পাঠিয়েছেন";
+                      else if (t.equals("announcement")) msg = o.optString("body");
+                      else if (t.equals("story_react")) msg = nm + " আপনার Story-তে React করেছেন";
                       else msg = "নতুন Notification";
                       show(id.hashCode(), "fb_msg", t.equals("message") ? "নতুন Message" : "Friends Book", msg, t.equals("message") ? "#/messages" : "#/notifications", false);
                   }
