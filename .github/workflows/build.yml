@@ -270,6 +270,7 @@ jobs:
                       public void onBannerClick(BannerView v2) { }
                       public void onBannerFailedToLoad(BannerView v3, BannerErrorInfo info) { toastAd("Banner: " + info.errorMessage); }
                       public void onBannerLeftApplication(BannerView v4) { }
+                      public void onBannerShown(BannerView v5) { }
                   });
                   b.load();
                       LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(-2, -2);
