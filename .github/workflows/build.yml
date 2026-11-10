@@ -95,6 +95,7 @@ jobs:
           import com.unity3d.ads.IUnityAdsShowListener;
           import com.unity3d.ads.UnityAds;
           import com.unity3d.ads.UnityAdsShowOptions;
+          import com.unity3d.services.banners.BannerErrorInfo;
           import com.unity3d.services.banners.BannerView;
           import com.unity3d.services.banners.UnityBannerSize;
           import android.widget.LinearLayout;
@@ -234,8 +235,12 @@ jobs:
 
                   web.addJavascriptInterface(new Object() {
                       @JavascriptInterface
+                      public void showMidRoll() {
+                      runOnUiThread(new Runnable() { public void run() { playVideoAd(true); } });
+                      }
+                      @JavascriptInterface
                       public void showVideoAd() {
-                          runOnUiThread(new Runnable() { public void run() { playVideoAd(); } });
+                          runOnUiThread(new Runnable() { public void run() { playVideoAd(false); } });
                       }
                   }, "FBAds");
                   web.addJavascriptInterface(new Object() {
@@ -260,7 +265,13 @@ jobs:
               void showBanner() {
                   try {
                       BannerView b = new BannerView(this, UNITY_BANNER, new UnityBannerSize(320, 50));
-                      b.load();
+                      b.setListener(new BannerView.IListener() {
+                      public void onBannerLoaded(BannerView v1) { }
+                      public void onBannerClick(BannerView v2) { }
+                      public void onBannerFailedToLoad(BannerView v3, BannerErrorInfo info) { toastAd("Banner: " + info.errorMessage); }
+                      public void onBannerLeftApplication(BannerView v4) { }
+                  });
+                  b.load();
                       LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(-2, -2);
                       bp.gravity = Gravity.CENTER_HORIZONTAL;
                       adCol.addView(b, bp);
@@ -270,9 +281,9 @@ jobs:
               long lastAd = 0;
               boolean adBusy = false;
               
-              void playVideoAd() {
+              void playVideoAd(final boolean force) {
                   long now = System.currentTimeMillis();
-                  if (adBusy || (lastAd != 0 && now - lastAd < AD_GAP_MS) || !UnityAds.isInitialized()) { adDone(); return; }
+                  if (adBusy || (!force && lastAd != 0 && now - lastAd < AD_GAP_MS) || !UnityAds.isInitialized()) { adDone(); return; }
                   adBusy = true;
                   UnityAds.load(UNITY_INTERSTITIAL, new IUnityAdsLoadListener() {
                       public void onUnityAdsAdLoaded(final String pid) {
